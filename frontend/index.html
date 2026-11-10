@@ -100,6 +100,7 @@
   .c2 { --dot: #0891b2; } .c2 .tag { background: #ecfeff; color: #0e7490; }
   .c3 { --dot: #7c3aed; } .c3 .tag { background: #f5f3ff; color: #6d28d9; }
   .c4 { --dot: #ea580c; } .c4 .tag { background: #fff7ed; color: #c2410c; }
+  .c5 { --dot: #059669; } .c5 .tag { background: #ecfdf5; color: #047857; }
 
   footer { text-align: center; font-size: 12px; color: var(--muted); padding: 24px 16px 48px; }
 </style>
@@ -133,7 +134,7 @@
     <h2 style="margin-top:0;">Request Flow</h2>
     <img src="RequestFlow.jpg" alt="Request Flow Diagram" style="display:block; background:#fff; padding:16px; border:1px solid #ccc; max-width:60%; margin-bottom:24px;">
     <ol class="flow-steps">
-      <li><strong>Client</strong> (Postman / cURL / one of the four frontends below)
+      <li><strong>Client</strong> (Postman / cURL / one of the frontends below)
         <div style="color:var(--muted);">Sends a request to <code>https://yourdomain/api/...</code></div>
       </li>
       <li><strong>NGINX</strong> (reverse proxy)
@@ -149,7 +150,35 @@
     <span class="flow-arrow">Response returns: Flask &rarr; Gunicorn &rarr; NGINX &rarr; Client</span>
   </div>
 
-  <h2>API Endpoints &amp; Sample Frontends</h2>
+  <h2>Our Group's Models</h2>
+  <div class="endpoint-grid">
+    <a class="endpoint-card c5" href="rental_price_predictor.html">
+      <span class="tag">Regression</span>
+      <h3>Rental Price Predictor</h3>
+      <p>Predicts monthly rent (KES) for a Nairobi property.</p>
+      <p><code>/api/v1/models/rental-price-regressor/predictions</code></p>
+    </a>
+    <a class="endpoint-card c2" href="employee_attrition_classifier.html">
+      <span class="tag">Classification</span>
+      <h3>Employee Attrition Classifier</h3>
+      <p>Predicts whether an employee is likely to leave.</p>
+      <p><code>/api/v1/models/employee-attrition-classifier/predictions</code></p>
+    </a>
+    <a class="endpoint-card c3" href="retail_store_segmenter.html">
+      <span class="tag">Clustering</span>
+      <h3>Retail Store Segmenter</h3>
+      <p>Assigns a new store to one of four segments.</p>
+      <p><code>/api/v1/models/retail-store-segmenter/predictions</code></p>
+    </a>
+    <a class="endpoint-card c4" href="music_recommender.html">
+      <span class="tag">Association Rules</span>
+      <h3>Music Recommender</h3>
+      <p>Recommends tracks for a listening session.</p>
+      <p><code>/api/v1/models/music-recommender/predictions</code></p>
+    </a>
+  </div>
+
+  <h2>Lab Demo Models</h2>
   <div class="endpoint-grid">
     <a class="endpoint-card c1" href="sme_revenue_regressor.html">
       <span class="tag">Regression</span>

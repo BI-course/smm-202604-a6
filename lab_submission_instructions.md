@@ -2,51 +2,55 @@
 
 ## Student Details and Individual Member Contributions
 
-**Name of the team on GitHub Classroom:**
+**Name of the team on GitHub Classroom:** Vin Wonder, Collins Mwenda, Celestine Njiru, Aguer Deng, Turkmen Desmond
+
+**GitHub accounts:** Vin Wonder ([@VinWonder](https://github.com/VinWonder)), Collins Mwenda ([@collo7c](https://github.com/collo7c)), Celestine Njiru ([@nyingicele](https://github.com/nyingicele)), Aguer Deng ([@Aguer20](https://github.com/Aguer20)), Turkmen Desmond ([@D3zzm4nd](https://github.com/D3zzm4nd))
+
+**How the work was divided:** each of Members 1-4 owns one of our four models from end to end: its API endpoint, its HTML page, its tab in the Gradio app and its tab in the Streamlit app, plus one piece of the shared API error handling. Member 5 owns deployment: Docker + Gunicorn + Nginx, Render, and publishing the Hugging Face Space and Streamlit app that Members 1-4 built tabs for. Each member worked on one feature branch, opened a pull request into `main`, and had it reviewed and approved by another member before merging. The branches were merged in the order Member 1 to Member 5, because each builds on the shared `api.py` and app files from the one before.
 
 **Member 1:**
 
 | **Details**                                                                                                                           | **Comment** |
 |:--------------------------------------------------------------------------------------------------------------------------------------|:------------|
-| **Student ID**                                                                                                                        |             |
-| **Name**                                                                                                                              |             |
-| **What part of the lab did you personally<br/>contribute to (provide a link to the<br/>branch(es)), and what did you learn from it?** |             |
+| **Student ID**                                                                                                                        | 169912 |
+| **Name**                                                                                                                              | Vin Wonder |
+| **What part of the lab did you personally<br/>contribute to (provide a link to the<br/>branch(es)), and what did you learn from it?** | **Part:** Part A, Regression (rental price), end to end. Added `POST /api/v1/models/rental-price-regressor/predictions`, which loads `model/lasso_regressor_for_rental_price.joblib` (Lasso, log1p target) and converts the prediction back to KES with `expm1`. Built its HTML page `frontend/rental_price_predictor.html` and its "Rental Price" tab in both the Gradio and Streamlit apps. Shared work: the basic error handling for missing input (`get_payload_or_error`, used by every endpoint, so a missing field or empty body returns HTTP 400 instead of a 500), the value-validation helper (`validate_values`) that returns HTTP 400 for wrong types, negative numbers and unknown categories, and the frontend landing page `frontend/index.html`.<br/>**Branch link:** https://github.com/BI-course/smm-202604-a6/tree/feature/regression-rental-price<br/>**What I learned:** The fitted Pipeline is the deployment artifact. Imputing, scaling and one-hot encoding all happen inside it, so the API only builds a DataFrame and calls `.predict()`. The model was trained on `log1p(rent)`, so the API must apply `expm1` or it returns nonsense values. Reading the allowed categories from the fitted encoder means a misspelt neighbourhood gets a clear 400 instead of a silently wrong price. |
 
 **Member 2:**
 
 | **Details**                                                                                                                           | **Comment** |
 |:--------------------------------------------------------------------------------------------------------------------------------------|:------------|
-| **Student ID**                                                                                                                        |             |
-| **Name**                                                                                                                              |             |
-| **What part of the lab did you personally<br/>contribute to (provide a link to the<br/>branch(es)), and what did you learn from it?** |             |
+| **Student ID**                                                                                                                        | 169424 |
+| **Name**                                                                                                                              | Collins Mwenda |
+| **What part of the lab did you personally<br/>contribute to (provide a link to the<br/>branch(es)), and what did you learn from it?** | **Part:** Part A, Classification (employee attrition), end to end. Added `POST /api/v1/models/employee-attrition-classifier/predictions`, which loads `model/svc_classifier_for_attrition.joblib` (SMOTE + linear SVC) and returns the Yes/No prediction with class probabilities. Built its HTML page `frontend/employee_attrition_classifier.html` and its "Employee Attrition" tab in both the Gradio and Streamlit apps. Shared work: JSON error responses for 404 (unknown URL), 405 (wrong HTTP method) and 500, instead of Flask's default HTML pages.<br/>**Branch link:** https://github.com/BI-course/smm-202604-a6/tree/feature/classification-attrition<br/>**What I learned:** SMOTE sits inside the imbalanced-learn Pipeline but only runs during `.fit()`, so the served model never resamples a client's request. Returning class probabilities, not just the label, shows how confident the model is. An API should answer every error in JSON, because a client program cannot read an HTML error page. |
 
 **Member 3:**
 
 | **Details**                                                                                                                           | **Comment** |
 |:--------------------------------------------------------------------------------------------------------------------------------------|:------------|
-| **Student ID**                                                                                                                        |             |
-| **Name**                                                                                                                              |             |
-| **What part of the lab did you personally<br/>contribute to (provide a link to the<br/>branch(es)), and what did you learn from it?** |             |
+| **Student ID**                                                                                                                        | 134779 |
+| **Name**                                                                                                                              | Celestine Njiru |
+| **What part of the lab did you personally<br/>contribute to (provide a link to the<br/>branch(es)), and what did you learn from it?** | **Part:** Part B, Clustering (retail store segments), end to end. Added `POST /api/v1/models/retail-store-segmenter/predictions`, which loads `model/kmeans_retail_store_segmentation.joblib` (saved scaler + K-Means, k=4), applies the scaler before predicting, and returns the cluster with a business-friendly segment name. Built its HTML page `frontend/retail_store_segmenter.html` and its "Retail Store Segment" tab in both the Gradio and Streamlit apps. Shared work: `GET /api/v1/health`, which reports whether every model loaded, and the start-up handling that keeps the API running (with a 503 for the affected endpoint) if one model file fails to load.<br/>**Branch link:** https://github.com/BI-course/smm-202604-a6/tree/feature/clustering-retail-stores<br/>**What I learned:** K-Means does not bundle its own scaler, so the scaler fitted during training has to be saved alongside the model and applied first. Otherwise revenue in KES swamps every other feature and every store lands in the wrong cluster. Saving the feature order with the model lets the API reorder the incoming columns safely. A bare cluster number means little to a business user, so the API also returns a segment name based on the cluster centres. |
 
 **Member 4:**
 
 | **Details**                                                                                                                           | **Comment** |
 |:--------------------------------------------------------------------------------------------------------------------------------------|:------------|
-| **Student ID**                                                                                                                        |             |
-| **Name**                                                                                                                              |             |
-| **What part of the lab did you personally<br/>contribute to (provide a link to the<br/>branch(es)), and what did you learn from it?** |             |
+| **Student ID**                                                                                                                        | 167745 |
+| **Name**                                                                                                                              | Aguer Deng |
+| **What part of the lab did you personally<br/>contribute to (provide a link to the<br/>branch(es)), and what did you learn from it?** | **Part:** Part B, Association Rule Mining (music recommendations), end to end. Added `POST /api/v1/models/music-recommender/predictions`, which loads `model/music_streaming_arm_rules.joblib` (precomputed Apriori lookup) and ranks recommended tracks by confidence, plus `GET /api/v1/models/music-recommender/tracks` and `GET /api/v1/models/music-recommender/rules` (served from `model/top_association_rules.csv`). Built its HTML page `frontend/music_recommender.html` and its "Music Recommender" tab in both the Gradio and Streamlit apps. Shared work: `GET /api/v1/models`, which documents every endpoint, its required fields and the allowed category values.<br/>**Branch link:** https://github.com/BI-course/smm-202604-a6/tree/feature/arm-music-recommender<br/>**What I learned:** The rules are mined once in the notebook and stored as a lookup, so the API only does a fast subset match and ranks the results by confidence, the same way a production recommender microservice works. An unknown track ID should return a 400 that names the bad ID, and a discovery endpoint lets developers integrate without reading our code. |
 
 **Member 5:**
 
 | **Details**                                                                                                                           | **Comment** |
 |:--------------------------------------------------------------------------------------------------------------------------------------|:------------|
-| **Student ID**                                                                                                                        |             |
-| **Name**                                                                                                                              |             |
-| **What part of the lab did you personally<br/>contribute to (provide a link to the<br/>branch(es)), and what did you learn from it?** |             |
+| **Student ID**                                                                                                                        | 167746 |
+| **Name**                                                                                                                              | Turkmen Desmond |
+| **What part of the lab did you personally<br/>contribute to (provide a link to the<br/>branch(es)), and what did you learn from it?** | **Part:** Part C, Deployment. Containerised the unmodified `api.py` with Gunicorn behind an Nginx reverse proxy (Docker Compose, self-signed TLS, HTTP to HTTPS redirect). Deployed it to Render with a start command sized for the free tier. Published the Gradio app as a Hugging Face Space (Python 3.12 pinned in the Space's README) and the Streamlit app on Streamlit Community Cloud, all using the same `.joblib` artifacts in `model/`.<br/>**Branch link:** https://github.com/BI-course/smm-202604-a6/tree/feature/deployment-docker-render<br/>**What I learned:** Nginx terminates HTTPS and forwards `/api/` to Gunicorn's worker processes, which replaces Flask's single-threaded development server. Each Gunicorn worker loads every model (about 110 MB), so Render's 512 MB free tier needs 2 workers, not 4. A pickled model only works reliably with the scikit-learn version that saved it, so every platform pins `scikit-learn==1.9.0` and Python 3.12. |
 
 ## Chosen Level of Difficulty
 
-**Specify the chosen level of difficulty** (baseline, intermediate, or advanced):
+**Specify the chosen level of difficulty** (baseline, intermediate, or advanced): **Advanced**
 
 ## Video Demonstration
 
