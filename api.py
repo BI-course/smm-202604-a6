@@ -740,6 +740,16 @@ def health():
     }), 200 if healthy else 503
 
 
+# Visiting the bare Render URL in a browser now explains itself instead of
+# returning a 404. (Behind Nginx, "/" is served by the HTML frontend instead.)
+@app.route("/", methods=["GET"])
+def index():
+    return jsonify({
+        "message": "Serving ML Models API. GET /api/v1/models lists every endpoint.",
+        "health": "/api/v1/health",
+    })
+
+
 # -----------------------------------------------------------------------
 # Entry point
 # -----------------------------------------------------------------------

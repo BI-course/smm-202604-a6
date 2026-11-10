@@ -12,6 +12,7 @@ looks up, the artifacts loaded once at start-up.
 
 Files to upload to the Space (all in the Space's root folder):
     app.py
+    README.md          (its header pins Python 3.12)
     requirements.txt
     lasso_regressor_for_rental_price.joblib
     svc_classifier_for_attrition.joblib
