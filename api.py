@@ -1,7 +1,7 @@
 """
 api.py
 
-A RESTish API, built with Flask, that serves FOUR machine learning artifacts
+A RESTish API, built with Flask, that serves the machine learning artifacts
 produced in earlier labs:
 
     1. Regression       -- SME monthly revenue prediction
@@ -9,6 +9,7 @@ produced in earlier labs:
     3. Clustering       -- Mall customer segment assignment
     4. Association Rule -- Product recommendation from a cart
        Mining (ARM)
+    5. Regression       -- Nairobi monthly rental price prediction
 
 The point of this file is to show you that a fitted scikit-learn /
 imbalanced-learn Pipeline is a SINGLE object that already knows how to impute
@@ -70,7 +71,10 @@ CORS(app, resources={r"/api/*": {"origins": [
 # single API call, which is slow and pointless -- the fitted model never
 # changes while the server is running.
 # -----------------------------------------------------------------------
-MODEL_DIR = "./model"
+# Resolved relative to this file (not the current working directory), so the
+# API finds its models whether it is started from the repo root, from another
+# folder, by Gunicorn inside Docker, or by Render.
+MODEL_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "model")
 
 regression_pipeline = joblib.load(
     os.path.join(MODEL_DIR, "lasso_regressor_for_sme_revenue.joblib")
@@ -92,7 +96,81 @@ arm_artifact = joblib.load(
 recommendation_lookup = arm_artifact["recommendation_lookup"]
 sku_lookup = arm_artifact["sku_lookup"]
 
-print("All the four artifacts have been loaded. The API is ready.")
+print("The four lab-demo artifacts have been loaded.")
+
+
+# -----------------------------------------------------------------------
+# OUR GROUP'S FOUR MODELS (rental price, attrition, retail stores, music)
+# -----------------------------------------------------------------------
+# All four were trained in our earlier labs and saved with scikit-learn
+# 1.9.0 -- the exact version pinned in requirements/constraints.txt. A
+# pickled scikit-learn object is only guaranteed to work with the SAME
+# version that saved it, so local, Docker, Render, Hugging Face and
+# Streamlit all install that same pinned version.
+rental_pipeline = joblib.load(
+    os.path.join(MODEL_DIR, "lasso_regressor_for_rental_price.joblib")
+)
+
+print("Our group's models have been loaded. The API is ready.")
+
+
+# -----------------------------------------------------------------------
+# Input metadata read FROM THE FITTED MODELS themselves
+# -----------------------------------------------------------------------
+# Rather than hard-coding which fields are required and which category
+# values are valid, read them from what each pipeline learned at fit time.
+# If a model is retrained with a new category, validation updates itself.
+def fitted_categories(pipeline, transformer_name, encoder_step):
+    """{column: [allowed values]} for one categorical branch of a fitted pipeline."""
+    branch = pipeline.named_steps["preprocessor"].named_transformers_[transformer_name]
+    encoder = branch.named_steps[encoder_step]
+    columns = branch.feature_names_in_
+    return {col: [str(v) for v in cats] for col, cats in zip(columns, encoder.categories_)}
+
+
+RENTAL_FIELDS = list(rental_pipeline.feature_names_in_)
+RENTAL_CATEGORIES = fitted_categories(rental_pipeline, "nominal", "onehot")
+RENTAL_NULLABLE = ["service_charge_kes"]
+
+
+# -----------------------------------------------------------------------
+# Basic error handling for missing input
+# -----------------------------------------------------------------------
+# Returns (payload, None) if the JSON body is present and contains every
+# required field, otherwise (None, error_response) with HTTP 400 so the
+# client gets a clear message instead of a 500 Internal Server Error.
+def get_payload_or_error(required_fields):
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict) or not payload:
+        return None, (jsonify({"error": "Request body must be a non-empty JSON object."}), 400)
+    missing = [field for field in required_fields if field not in payload]
+    if missing:
+        return None, (jsonify({"error": "Missing required field(s).", "missing_fields": missing}), 400)
+    return payload, None
+
+
+# Checks the VALUES (not just the presence) of the fields our group's models
+# need, so a typo such as "Kilimanii" or a number sent as "abc" gets a clear
+# HTTP 400 that says exactly what to fix, instead of a silent wrong answer
+# or a 500 Internal Server Error from deep inside scikit-learn.
+def validate_values(payload, numeric_fields=(), categories=None, nullable=()):
+    invalid = {}
+    for field in numeric_fields:
+        value = payload.get(field)
+        if value is None:
+            if field not in nullable:
+                invalid[field] = "must be a number (null is not allowed for this field)"
+        elif isinstance(value, bool) or not isinstance(value, (int, float)):
+            invalid[field] = f"must be a number, got {value!r}"
+        elif value < 0:
+            invalid[field] = f"must not be negative, got {value}"
+    for field, allowed in (categories or {}).items():
+        if payload.get(field) not in allowed:
+            invalid[field] = f"must be one of {allowed}, got {payload.get(field)!r}"
+    if invalid:
+        return jsonify({"error": "Invalid field value(s).", "invalid_fields": invalid}), 400
+    return None
+
 
 
 # 1. REGRESSION -- predict monthly revenue (KES) for an SME
@@ -127,7 +205,9 @@ print("All the four artifacts have been loaded. The API is ready.")
 # in this file needs to know that rule.
 @app.route("/api/v1/models/sme-revenue-regressor/predictions", methods=["POST"])
 def predict_revenue():
-    payload = request.get_json()
+    payload, error = get_payload_or_error(["sector", "county", "business_age_years", "num_employees"])
+    if error:
+        return error
 
     # Build a one-row DataFrame straight from the JSON body. No manual
     # label-encoding, no manual date parsing, no manual column reordering, etc. --
@@ -170,7 +250,9 @@ def predict_revenue():
 # internally; this route does not need special code for it.
 @app.route("/api/v1/models/sme-credit-risk-classifier/predictions", methods=["POST"])
 def predict_credit_risk():
-    payload = request.get_json()
+    payload, error = get_payload_or_error(["sector", "county", "loan_amount_kes", "credit_score"])
+    if error:
+        return error
     input_row = pd.DataFrame([payload])
 
     predicted_class = classification_pipeline.predict(input_row)[0]
@@ -202,7 +284,9 @@ def predict_credit_risk():
 # three numeric fields are used exactly as the client sends them.
 @app.route("/api/v1/models/mall-customer-segmenter/predictions", methods=["POST"])
 def predict_customer_segment():
-    payload = request.get_json()
+    payload, error = get_payload_or_error(["Age", "Annual Income (k$)", "Spending Score (1-100)"])
+    if error:
+        return error
     input_row = pd.DataFrame([payload])
 
     scaled_input = clustering_scaler.transform(input_row)
@@ -234,8 +318,12 @@ def predict_customer_segment():
 # for the rules again.
 @app.route("/api/v1/models/ecommerce-recommender/predictions", methods=["POST"])
 def recommend_products():
-    payload = request.get_json()
-    cart = set(payload.get("cart", []))
+    payload, error = get_payload_or_error(["cart"])
+    if error:
+        return error
+    if not isinstance(payload["cart"], list) or not payload["cart"]:
+        return jsonify({"error": "'cart' must be a non-empty list of SKUs."}), 400
+    cart = set(payload["cart"])
     top_n = int(payload.get("top_n", 3))
 
     candidates = {}
@@ -261,6 +349,60 @@ def recommend_products():
         "cart": sorted(cart),
         "recommendations": recommendations,
         "model": "Apriori association rules, cleaned + precomputed lookup",
+    })
+
+
+# =======================================================================
+# OUR GROUP'S FOUR MODELS
+# =======================================================================
+
+# 5. REGRESSION -- predict monthly rental price (KES) for a Nairobi property
+
+# Sample request (cURL):
+#   curl -X POST http://127.0.0.1:5000/api/v1/models/rental-price-regressor/predictions \
+#        -H "Content-Type: application/json" \
+#        -d '{"property_type": "Apartment", "neighborhood": "Kilimani",
+#             "furnishing_status": "Semi-Furnished", "property_age_years": 5.0,
+#             "size_sqm": 120.0, "num_bedrooms": 3, "distance_to_cbd_km": 8.0,
+#             "service_charge_kes": 15000.0, "security_rating": 4.0,
+#             "amenities_score": 65.0, "nearby_schools_count": 3}'
+#
+# Sample request (PowerShell):
+#   Invoke-RestMethod -Method Post `
+#     -Uri "http://127.0.0.1:5000/api/v1/models/rental-price-regressor/predictions" `
+#     -ContentType "application/json" `
+#     -Body (@{property_type="Apartment"; neighborhood="Kilimani";
+#              furnishing_status="Semi-Furnished"; property_age_years=5.0;
+#              size_sqm=120.0; num_bedrooms=3; distance_to_cbd_km=8.0;
+#              service_charge_kes=15000.0; security_rating=4.0;
+#              amenities_score=65.0; nearby_schools_count=3} | ConvertTo-Json)
+#
+# Note: service_charge_kes and security_rating may be sent as null -- the
+# pipeline's own median imputers fill them, exactly as during training.
+RENTAL_NULLABLE.append("security_rating")
+
+
+@app.route("/api/v1/models/rental-price-regressor/predictions", methods=["POST"])
+def predict_rental_price():
+    payload, error = get_payload_or_error(RENTAL_FIELDS)
+    if error:
+        return error
+    numeric_fields = [f for f in RENTAL_FIELDS if f not in RENTAL_CATEGORIES]
+    error = validate_values(payload, numeric_fields, RENTAL_CATEGORIES, nullable=RENTAL_NULLABLE)
+    if error:
+        return error
+
+    input_row = pd.DataFrame([payload])[RENTAL_FIELDS]
+
+    # The pipeline was trained on log1p(monthly rent) because rent is
+    # right-skewed; expm1 converts the prediction back to KES.
+    import numpy as np
+    predicted_log_rent = rental_pipeline.predict(input_row)[0]
+    predicted_rent_kes = float(np.expm1(predicted_log_rent))
+
+    return jsonify({
+        "predicted_monthly_rent_kes": round(predicted_rent_kes, 2),
+        "model": "Lasso Regressor (alpha=0.001, log1p target)",
     })
 
 
