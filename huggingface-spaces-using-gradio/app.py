@@ -4,6 +4,7 @@ four models from the SAME trained .joblib artifacts that api.py serves:
 
     1. Regression       -- Nairobi monthly rental price      (Lasso, log1p target)
     2. Classification   -- Employee attrition (Yes/No)       (SMOTE + linear SVC)
+    3. Clustering       -- Retail store segment              (K-Means, k=4)
 
 Nothing is retrained here: every tab only calls .predict()/.transform() on, or
 looks up, the artifacts loaded once at start-up.
@@ -13,6 +14,7 @@ Files to upload to the Space (all in the Space's root folder):
     requirements.txt
     lasso_regressor_for_rental_price.joblib
     svc_classifier_for_attrition.joblib
+    kmeans_retail_store_segmentation.joblib
 
 Run locally from the repository root (it then finds the files in ./model):
     python huggingface-spaces-using-gradio/app.py
@@ -62,6 +64,7 @@ def load_artifact(filename):
 
 rental_pipeline = load_artifact("lasso_regressor_for_rental_price.joblib")
 attrition_pipeline = load_artifact("svc_classifier_for_attrition.joblib")
+store_artifact = load_artifact("kmeans_retail_store_segmentation.joblib")
 
 
 def fitted_categories(pipeline, transformer_name, encoder_step):
@@ -76,6 +79,14 @@ RENTAL_FIELDS = list(rental_pipeline.feature_names_in_)
 RENTAL_CATS = fitted_categories(rental_pipeline, "nominal", "onehot")
 ATTRITION_FIELDS = list(attrition_pipeline.feature_names_in_)
 ATTRITION_CATS = fitted_categories(attrition_pipeline, "cat", "encoder")
+STORE_FIELDS = store_artifact["feature_names"]
+
+STORE_SEGMENTS = {
+    0: ("Small Neighbourhood Stores", "Low revenue, small floor space and few staff; customers buy small baskets."),
+    1: ("Flagship Superstores", "Highest revenue, foot traffic, staff and floor space by a wide margin."),
+    2: ("High-Traffic Value Stores", "Mid-size stores whose revenue comes from many shoppers buying small baskets."),
+    3: ("Premium Boutiques", "Small stores with few shoppers but the largest baskets, earning mid-level revenue."),
+}
 
 
 def require(values, names, optional=()):
@@ -104,6 +115,20 @@ def predict_attrition(*values):
     probabilities = attrition_pipeline.predict_proba(input_row)[0]
     labels = attrition_pipeline.named_steps["model"].classes_
     return {f"Attrition: {label}": float(p) for label, p in zip(labels, probabilities)}
+
+
+# -----------------------------------------------------------------------
+# 3. Clustering -- retail store segment
+# -----------------------------------------------------------------------
+def predict_store_segment(*values):
+    require(values, STORE_FIELDS)
+    if any(v < 0 for v in values):
+        raise gr.Error("Values cannot be negative.")
+    input_row = pd.DataFrame([dict(zip(STORE_FIELDS, values))])[STORE_FIELDS]
+    scaled = store_artifact["scaler"].transform(input_row)
+    cluster = int(store_artifact["kmeans"].predict(scaled)[0])
+    name, description = STORE_SEGMENTS[cluster]
+    return f"## Cluster {cluster}: {name}\n\n{description}"
 
 
 # -----------------------------------------------------------------------
@@ -157,6 +182,20 @@ with gr.Blocks(title="BBT 4206 Group Model Demos") as demo:
                 "bonus_amount_kes": number("Bonus (KES, blank if none recorded)", 30000),
             }[f] for f in ATTRITION_FIELDS],
             outputs=gr.Label(label="Prediction"),
+            flagging_mode="never",
+        )
+
+    with gr.Tab("Retail Store Segment (Clustering)"):
+        gr.Interface(
+            fn=predict_store_segment,
+            inputs=[{
+                "monthly_revenue_kes": number("Monthly revenue (KES)", 850000),
+                "daily_foot_traffic": number("Daily foot traffic", 320, step=1),
+                "staff_count": number("Staff count", 6, step=1),
+                "store_size_sqm": number("Store size (sqm)", 220),
+                "avg_basket_size_kes": number("Average basket size (KES)", 105),
+            }[f] for f in STORE_FIELDS],
+            outputs=gr.Markdown(),
             flagging_mode="never",
         )
 

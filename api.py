@@ -11,6 +11,7 @@ produced in earlier labs:
        Mining (ARM)
     5. Regression       -- Nairobi monthly rental price prediction
     6. Classification   -- Employee attrition (Yes/No)
+    7. Clustering       -- Retail store segment assignment
 
 The point of this file is to show you that a fitted scikit-learn /
 imbalanced-learn Pipeline is a SINGLE object that already knows how to impute
@@ -108,15 +109,39 @@ print("The four lab-demo artifacts have been loaded.")
 # pickled scikit-learn object is only guaranteed to work with the SAME
 # version that saved it, so local, Docker, Render, Hugging Face and
 # Streamlit all install that same pinned version.
-rental_pipeline = joblib.load(
-    os.path.join(MODEL_DIR, "lasso_regressor_for_rental_price.joblib")
+#
+# They are loaded defensively: if one of them cannot be loaded, the API
+# still starts and only that model's endpoints answer with HTTP 503 (and the
+# reason), instead of the whole server failing to boot.
+unavailable_models = {}
+
+
+def load_optional_artifact(name, filename):
+    try:
+        return joblib.load(os.path.join(MODEL_DIR, filename))
+    except Exception as exc:  # noqa: BLE001 -- report any load failure, keep serving the rest
+        unavailable_models[name] = f"{filename} could not be loaded: {type(exc).__name__}: {exc}"
+        print(f"WARNING: {unavailable_models[name]}")
+        return None
+
+
+def unavailable_error(name):
+    return jsonify({"error": "Model is not available.", "detail": unavailable_models[name]}), 503
+
+
+rental_pipeline = load_optional_artifact(
+    "rental", "lasso_regressor_for_rental_price.joblib"
 )
 
-attrition_pipeline = joblib.load(
-    os.path.join(MODEL_DIR, "svc_classifier_for_attrition.joblib")
+attrition_pipeline = load_optional_artifact(
+    "attrition", "svc_classifier_for_attrition.joblib"
 )
 
-print("Our group's models have been loaded. The API is ready.")
+store_clustering_artifact = load_optional_artifact(
+    "store", "kmeans_retail_store_segmentation.joblib"
+)
+
+print("The API is ready." + (f" Unavailable: {sorted(unavailable_models)}" if unavailable_models else ""))
 
 
 # -----------------------------------------------------------------------
@@ -133,12 +158,35 @@ def fitted_categories(pipeline, transformer_name, encoder_step):
     return {col: [str(v) for v in cats] for col, cats in zip(columns, encoder.categories_)}
 
 
-RENTAL_FIELDS = list(rental_pipeline.feature_names_in_)
-RENTAL_CATEGORIES = fitted_categories(rental_pipeline, "nominal", "onehot")
-RENTAL_NULLABLE = ["service_charge_kes"]
+RENTAL_FIELDS, RENTAL_CATEGORIES, RENTAL_NULLABLE = [], {}, ["service_charge_kes"]
+if rental_pipeline is not None:
+    RENTAL_FIELDS = list(rental_pipeline.feature_names_in_)
+    RENTAL_CATEGORIES = fitted_categories(rental_pipeline, "nominal", "onehot")
 
-ATTRITION_FIELDS = list(attrition_pipeline.feature_names_in_)
-ATTRITION_CATEGORIES = fitted_categories(attrition_pipeline, "cat", "encoder")
+ATTRITION_FIELDS, ATTRITION_CATEGORIES = [], {}
+if attrition_pipeline is not None:
+    ATTRITION_FIELDS = list(attrition_pipeline.feature_names_in_)
+    ATTRITION_CATEGORIES = fitted_categories(attrition_pipeline, "cat", "encoder")
+
+STORE_FIELDS = store_clustering_artifact["feature_names"] if store_clustering_artifact else []
+
+# Business-facing names for each retail-store cluster, written from the
+# cluster centres (original units) the K-Means model learned:
+#   cluster | revenue (KES) | foot traffic | staff | size (sqm) | basket (KES)
+#      0    |    477,524    |     179      |   4   |    110     |      92
+#      1    |  4,680,043    |     897      |  22   |    854     |     176
+#      2    |  1,109,766    |     507      |   9   |    285     |      95
+#      3    |  1,097,548    |     148      |   5   |    108     |     261
+STORE_SEGMENTS = {
+    0: {"name": "Small Neighbourhood Stores",
+        "description": "Low revenue, small floor space and few staff; customers buy small baskets."},
+    1: {"name": "Flagship Superstores",
+        "description": "Highest revenue, foot traffic, staff and floor space by a wide margin."},
+    2: {"name": "High-Traffic Value Stores",
+        "description": "Mid-size stores whose revenue comes from many shoppers buying small baskets."},
+    3: {"name": "Premium Boutiques",
+        "description": "Small stores with few shoppers but the largest baskets, earning mid-level revenue."},
+}
 
 
 # -----------------------------------------------------------------------
@@ -408,6 +456,8 @@ RENTAL_NULLABLE.append("security_rating")
 
 @app.route("/api/v1/models/rental-price-regressor/predictions", methods=["POST"])
 def predict_rental_price():
+    if rental_pipeline is None:
+        return unavailable_error("rental")
     payload, error = get_payload_or_error(RENTAL_FIELDS)
     if error:
         return error
@@ -452,6 +502,8 @@ ATTRITION_NULLABLE = ["bonus_amount_kes", "work_life_balance_score"]
 
 @app.route("/api/v1/models/employee-attrition-classifier/predictions", methods=["POST"])
 def predict_attrition():
+    if attrition_pipeline is None:
+        return unavailable_error("attrition")
     payload, error = get_payload_or_error(ATTRITION_FIELDS)
     if error:
         return error
@@ -474,6 +526,57 @@ def predict_attrition():
         },
         "model": "Support Vector Classifier (linear, C=0.1, SMOTE-resampled at training only)",
     })
+
+
+# 7. CLUSTERING -- assign a new retail store to an existing segment
+
+# Sample request (cURL):
+#   curl -X POST http://127.0.0.1:5000/api/v1/models/retail-store-segmenter/predictions \
+#        -H "Content-Type: application/json" \
+#        -d '{"monthly_revenue_kes": 850000, "daily_foot_traffic": 320,
+#             "staff_count": 6, "store_size_sqm": 220, "avg_basket_size_kes": 105}'
+#
+# Note: like the mall segmenter, K-Means does not bundle its scaler, so the
+# saved scaler is applied explicitly first. The artifact also stores its
+# feature_names, so the columns are put in the exact order the scaler was
+# fitted on, whatever order the client sends them in.
+@app.route("/api/v1/models/retail-store-segmenter/predictions", methods=["POST"])
+def predict_store_segment():
+    if store_clustering_artifact is None:
+        return unavailable_error("store")
+    payload, error = get_payload_or_error(STORE_FIELDS)
+    if error:
+        return error
+    error = validate_values(payload, STORE_FIELDS)
+    if error:
+        return error
+
+    input_row = pd.DataFrame([payload])[STORE_FIELDS]
+    scaled_input = store_clustering_artifact["scaler"].transform(input_row)
+    kmeans = store_clustering_artifact["kmeans"]
+    assigned_cluster = int(kmeans.predict(scaled_input)[0])
+    segment = STORE_SEGMENTS.get(assigned_cluster, {})
+
+    return jsonify({
+        "assigned_cluster": assigned_cluster,
+        "segment_name": segment.get("name"),
+        "segment_description": segment.get("description"),
+        "model": f"K-Means (k={kmeans.n_clusters}, standardized features)",
+    })
+
+
+# -----------------------------------------------------------------------
+# Health check
+# -----------------------------------------------------------------------
+# GET /api/v1/health reports whether each model loaded (useful as Render's
+# health check path).
+@app.route("/api/v1/health", methods=["GET"])
+def health():
+    healthy = not unavailable_models
+    return jsonify({
+        "status": "ok" if healthy else "degraded",
+        "unavailable": unavailable_models,
+    }), 200 if healthy else 503
 
 
 # -----------------------------------------------------------------------

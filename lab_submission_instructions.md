@@ -2,9 +2,9 @@
 
 ## Student Details and Individual Member Contributions
 
-**Name of the team on GitHub Classroom:** Vin Wonder, Collins Mwenda, Celestine Njiru, Aguer Deng, Turkmen Desmond
+**Name of the team on GitHub Classroom:** Vin Wonder, Collins Mwenda, Celestine Nyingi, Aguer Deng, Turkmen Desmond
 
-**GitHub accounts:** Vin Wonder ([@VinWonder](https://github.com/VinWonder)), Collins Mwenda ([@collo7c](https://github.com/collo7c)), Celestine Njiru ([@nyingicele](https://github.com/nyingicele)), Aguer Deng ([@Aguer20](https://github.com/Aguer20)), Turkmen Desmond ([@D3zzm4nd](https://github.com/D3zzm4nd))
+**GitHub accounts:** Vin Wonder ([@VinWonder](https://github.com/VinWonder)), Collins Mwenda ([@collo7c](https://github.com/collo7c)), Celestine Nyingi([@nyingicele](https://github.com/nyingicele)), Aguer Deng ([@Aguer20](https://github.com/Aguer20)), Turkmen Desmond ([@D3zzm4nd](https://github.com/D3zzm4nd))
 
 **How the work was divided:** each of Members 1-4 owns one of our four models from end to end: its API endpoint, its HTML page, its tab in the Gradio app and its tab in the Streamlit app, plus one piece of the shared API error handling. Member 5 owns deployment: Docker + Gunicorn + Nginx, Render, and publishing the Hugging Face Space and Streamlit app that Members 1-4 built tabs for. Each member worked on one feature branch, opened a pull request into `main`, and had it reviewed and approved by another member before merging. The branches were merged in the order Member 1 to Member 5, because each builds on the shared `api.py` and app files from the one before.
 
