@@ -2,9 +2,9 @@
 
 ## Student Details and Individual Member Contributions
 
-**Name of the team on GitHub Classroom:** Vin Wonder, Collins Mwenda, Celestine Njiru, Aguer Deng, Turkmen Desmond
+**Name of the team on GitHub Classroom:** Vin Wonder, Collins Mwenda, Celestine Nyingi, Aguer Deng, Turkmen Desmond
 
-**GitHub accounts:** Vin Wonder ([@VinWonder](https://github.com/VinWonder)), Collins Mwenda ([@collo7c](https://github.com/collo7c)), Celestine Njiru ([@nyingicele](https://github.com/nyingicele)), Aguer Deng ([@Aguer20](https://github.com/Aguer20)), Turkmen Desmond ([@D3zzm4nd](https://github.com/D3zzm4nd))
+**GitHub accounts:** Vin Wonder ([@VinWonder](https://github.com/VinWonder)), Collins Mwenda ([@collo7c](https://github.com/collo7c)), Celestine Nyingi ([@nyingicele](https://github.com/nyingicele)), Aguer Deng ([@Aguer20](https://github.com/Aguer20)), Turkmen Desmond ([@D3zzm4nd](https://github.com/D3zzm4nd))
 
 **How the work was divided:** each of Members 1-4 owns one of our four models from end to end: its API endpoint, its HTML page, its tab in the Gradio app and its tab in the Streamlit app, plus one piece of the shared API error handling. Member 5 owns deployment: Docker + Gunicorn + Nginx, Render, and publishing the Hugging Face Space and Streamlit app that Members 1-4 built tabs for. Each member worked on one feature branch, opened a pull request into `main`, and had it reviewed and approved by another member before merging. The branches were merged in the order Member 1 to Member 5, because each builds on the shared `api.py` and app files from the one before.
 
@@ -29,7 +29,7 @@
 | **Details**                                                                                                                           | **Comment** |
 |:--------------------------------------------------------------------------------------------------------------------------------------|:------------|
 | **Student ID**                                                                                                                        | 134779 |
-| **Name**                                                                                                                              | Celestine Njiru |
+| **Name**                                                                                                                              | Celestine Nyingi |
 | **What part of the lab did you personally<br/>contribute to (provide a link to the<br/>branch(es)), and what did you learn from it?** | **Part:** Part B, Clustering (retail store segments), end to end. Added `POST /api/v1/models/retail-store-segmenter/predictions`, which loads `model/kmeans_retail_store_segmentation.joblib` (saved scaler + K-Means, k=4), applies the scaler before predicting, and returns the cluster with a business-friendly segment name. Built its HTML page `frontend/retail_store_segmenter.html` and its "Retail Store Segment" tab in both the Gradio and Streamlit apps. Shared work: `GET /api/v1/health`, which reports whether every model loaded, and the start-up handling that keeps the API running (with a 503 for the affected endpoint) if one model file fails to load.<br/>**Branch link:** https://github.com/BI-course/smm-202604-a6/tree/feature/clustering-retail-stores<br/>**What I learned:** K-Means does not bundle its own scaler, so the scaler fitted during training has to be saved alongside the model and applied first. Otherwise revenue in KES swamps every other feature and every store lands in the wrong cluster. Saving the feature order with the model lets the API reorder the incoming columns safely. A bare cluster number means little to a business user, so the API also returns a segment name based on the cluster centres. |
 
 **Member 4:**

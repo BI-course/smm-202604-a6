@@ -4,6 +4,7 @@ models from the SAME trained .joblib artifacts that api.py serves:
 
     1. Regression       -- Nairobi monthly rental price      (Lasso, log1p target)
     2. Classification   -- Employee attrition (Yes/No)       (SMOTE + linear SVC)
+    3. Clustering       -- Retail store segment              (K-Means, k=4)
 
 Nothing is retrained here. The artifacts are read from the repository's
 ./model folder (the same folder api.py uses).
@@ -25,6 +26,12 @@ st.set_page_config(page_title="BBT 4206 Group Models", page_icon="📊", layout=
 # this file means the app also works when started from any other folder.
 MODEL_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "model")
 
+STORE_SEGMENTS = {
+    0: ("Small Neighbourhood Stores", "Low revenue, small floor space and few staff; customers buy small baskets."),
+    1: ("Flagship Superstores", "Highest revenue, foot traffic, staff and floor space by a wide margin."),
+    2: ("High-Traffic Value Stores", "Mid-size stores whose revenue comes from many shoppers buying small baskets."),
+    3: ("Premium Boutiques", "Small stores with few shoppers but the largest baskets, earning mid-level revenue."),
+}
 
 
 # Streamlit re-runs this whole script on every click; @st.cache_resource
@@ -37,11 +44,12 @@ def load_artifacts():
     return (
         load("lasso_regressor_for_rental_price.joblib"),
         load("svc_classifier_for_attrition.joblib"),
+        load("kmeans_retail_store_segmentation.joblib"),
     )
 
 
 try:
-    rental_pipeline, attrition_pipeline = load_artifacts()
+    rental_pipeline, attrition_pipeline, store_artifact = load_artifacts()
 except FileNotFoundError as exc:
     st.error(f"Model file missing: {exc}. The ./model folder must be at the repository root.")
     st.stop()
@@ -58,6 +66,7 @@ RENTAL_FIELDS = list(rental_pipeline.feature_names_in_)
 RENTAL_CATS = fitted_categories(rental_pipeline, "nominal", "onehot")
 ATTRITION_FIELDS = list(attrition_pipeline.feature_names_in_)
 ATTRITION_CATS = fitted_categories(attrition_pipeline, "cat", "encoder")
+STORE_FIELDS = store_artifact["feature_names"]
 
 
 def select(label, options, default):
@@ -67,8 +76,8 @@ def select(label, options, default):
 st.title("BBT 4206: Our Group's Models")
 st.caption("One tab per model. Every tab uses the same saved `.joblib` artifacts as our Flask API; nothing is retrained.")
 
-tab_reg, tab_clf = st.tabs([
-    "Rental Price", "Employee Attrition",
+tab_reg, tab_clf, tab_clu = st.tabs([
+    "Rental Price", "Employee Attrition", "Retail Store Segment",
 ])
 
 # -----------------------------------------------------------------------
@@ -149,4 +158,37 @@ with tab_clf:
             f"(probability of leaving: {probabilities['Yes']:.1%})"
         )
         st.caption("Model: Support Vector Classifier (linear, C=0.1, SMOTE-resampled at training only)")
+
+# -----------------------------------------------------------------------
+# 3. Clustering -- retail store segment
+# -----------------------------------------------------------------------
+with tab_clu:
+    st.subheader("Retail store segment (k-Means clustering)")
+    with st.form("store_form"):
+        c1, c2 = st.columns(2)
+        with c1:
+            monthly_revenue_kes = st.number_input("Monthly revenue (KES)", min_value=0.0, value=850000.0, step=10000.0)
+            staff_count = st.number_input("Staff count", min_value=0, value=6, step=1)
+            avg_basket_size_kes = st.number_input("Average basket size (KES)", min_value=0.0, value=105.0)
+        with c2:
+            daily_foot_traffic = st.number_input("Daily foot traffic", min_value=0, value=320, step=10)
+            store_size_sqm = st.number_input("Store size (sqm)", min_value=0.0, value=220.0)
+        submitted = st.form_submit_button("Assign segment", type="primary")
+
+    if submitted:
+        row = pd.DataFrame([{
+            "monthly_revenue_kes": monthly_revenue_kes, "daily_foot_traffic": daily_foot_traffic,
+            "staff_count": staff_count, "store_size_sqm": store_size_sqm,
+            "avg_basket_size_kes": avg_basket_size_kes,
+        }])[STORE_FIELDS]
+        cluster = int(store_artifact["kmeans"].predict(store_artifact["scaler"].transform(row))[0])
+        name, description = STORE_SEGMENTS[cluster]
+        st.success(f"**Cluster {cluster}: {name}**\n\n{description}")
+        centres = pd.DataFrame(
+            store_artifact["scaler"].inverse_transform(store_artifact["kmeans"].cluster_centers_),
+            columns=STORE_FIELDS,
+        ).round(0)
+        centres.index = [f"{i}: {STORE_SEGMENTS[i][0]}" for i in centres.index]
+        st.caption("Cluster centres (original units)")
+        st.dataframe(centres, width="stretch")
 
