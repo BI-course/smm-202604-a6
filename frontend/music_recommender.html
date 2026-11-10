@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Music Recommender</title>
+<style>
+  :root {
+    --accent: #ea580c;
+    --accent-dark: #c2410c;
+    --accent-ring: rgba(234,88,12,0.15);
+    --accent-disabled: #f6b48b;
+    --bg: #f3f4f6;
+    --card: #ffffff;
+    --text: #1f2937;
+    --muted: #6b7280;
+    --border: #e5e7eb;
+    --ok-bg: #fff7ed;
+    --err-bg: #fef2f2;
+    --err-text: #b91c1c;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    display: flex;
+    justify-content: center;
+    padding: 32px 16px 64px;
+  }
+  .card {
+    background: var(--card);
+    border-radius: 16px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 8px 24px rgba(0,0,0,0.06);
+    max-width: 640px;
+    width: 100%;
+    padding: 32px 32px 28px;
+  }
+  .back-link { display: inline-block; margin-bottom: 16px; color: var(--muted); text-decoration: none; font-size: 14px; }
+  .back-link:hover { color: var(--accent); }
+  .badge {
+    display: inline-block; background: var(--ok-bg); color: var(--accent-dark);
+    font-size: 12px; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase;
+    padding: 4px 10px; border-radius: 999px; margin-bottom: 10px;
+  }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h2 { font-size: 15px; margin: 28px 0 8px; }
+  p.lead { color: var(--muted); font-size: 14px; margin: 0 0 20px; word-break: break-word; }
+  label.field { display: block; font-size: 13px; font-weight: 600; margin: 16px 0 6px; }
+  .hint { font-weight: 400; color: var(--muted); font-size: 13px; }
+  input[type=number], input[type=text] {
+    width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px;
+    font-size: 14px; background: #fff; color: var(--text);
+  }
+  input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); }
+  .group { margin-top: 12px; }
+  .group-name { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 6px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip { position: relative; }
+  .chip input { position: absolute; opacity: 0; pointer-events: none; }
+  .chip span {
+    display: inline-block; padding: 7px 12px; border: 1px solid var(--border); border-radius: 999px;
+    font-size: 13px; cursor: pointer; user-select: none; background: #fff;
+  }
+  .chip input:checked + span { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .chip input:focus-visible + span { box-shadow: 0 0 0 3px var(--accent-ring); }
+  #catalogStatus { font-size: 13px; color: var(--muted); }
+  .examples { font-size: 13px; color: var(--muted); margin-top: 10px; }
+  .examples button {
+    width: auto; margin: 0 4px 0 0; padding: 4px 10px; font-size: 12px; font-weight: 600;
+    background: var(--ok-bg); color: var(--accent-dark); border-radius: 999px;
+  }
+  .examples button:hover { background: #ffedd5; }
+  button {
+    width: 100%; margin-top: 24px; padding: 12px 16px; background: var(--accent); color: #fff;
+    border: none; border-radius: 10px; font-size: 15px; font-weight: 600; cursor: pointer;
+    transition: background 0.15s ease;
+  }
+  button:hover { background: var(--accent-dark); }
+  button:disabled { background: var(--accent-disabled); cursor: default; }
+  #result { margin-top: 20px; padding: 16px; border-radius: 10px; font-size: 14px; display: none; }
+  #result.show { display: block; }
+  #result.ok { background: var(--ok-bg); color: var(--accent-dark); }
+  #result.err { background: var(--err-bg); color: var(--err-text); white-space: pre-line; }
+  .rec { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid rgba(0,0,0,0.06); }
+  .rec:first-of-type { border-top: none; }
+  .rec .title { font-weight: 700; font-size: 15px; color: var(--text); }
+  .rec .meta { font-size: 12px; color: var(--muted); }
+  .rec .score { text-align: right; font-size: 12px; white-space: nowrap; }
+  .rec .score strong { font-size: 15px; display: block; }
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  @media (max-width: 480px) { .card { padding: 24px 20px; } }
+</style>
+</head>
+<body>
+  <div class="card">
+    <a class="back-link" href="index.html">&larr; All endpoints</a>
+    <span class="badge">Association Rules</span>
+    <h1>Music Track Recommender</h1>
+    <p class="lead">Calls <code>POST /api/v1/models/music-recommender/predictions</code></p>
+
+    <form id="predictForm" novalidate>
+      <label class="field">Tracks in the listening session <span class="hint">(pick one or more)</span></label>
+      <div id="catalog"><span id="catalogStatus">Loading track catalogue&hellip;</span></div>
+      <div class="examples">Try:
+        <button type="button" data-tracks="M09,M10">Two gospel tracks</button>
+        <button type="button" data-tracks="M01,M03">Two workout tracks</button>
+        <button type="button" data-tracks="M11">One R&amp;B track</button>
+      </div>
+
+      <label class="field" for="top_n">Number of recommendations <span class="hint">(1-20)</span></label>
+      <input type="number" id="top_n" min="1" max="20" step="1" value="3">
+
+      <button type="submit" id="submitBtn">Recommend Tracks</button>
+    </form>
+
+    <div id="result"></div>
+
+    <h2>Strongest mined rules <span class="hint">(from <code>top_association_rules.csv</code>)</span></h2>
+    <div class="table-wrap" id="rules"><span class="hint">Loading&hellip;</span></div>
+  </div>
+
+<script>
+  const protocol = window.location.protocol;
+  const hostname = window.location.hostname || "127.0.0.1";
+  const isSecure = protocol === "https:";
+  // Add ?api=https://your-service.onrender.com to the page URL to call a
+  // deployed API instead of the local one (e.g. Render, for the video).
+  const apiOverride = new URLSearchParams(window.location.search).get("api");
+  const API_ORIGIN = apiOverride
+    ? apiOverride.replace(/\/+$/, "")
+    // Behind Nginx (https) the API is on the same origin as this page, whatever
+    // the port; opened as a file or from VS Code Live Server it is Flask on :5000.
+    : isSecure ? window.location.origin : `http://${hostname}:5000`;
+  const BASE = `${API_ORIGIN}/api/v1/models/music-recommender`;
+  const BUTTON_LABEL = "Recommend Tracks";
+
+  let trackNames = {};
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+
+  function describeError(status, data) {
+    let msg = `${data.error || "Request failed"} (HTTP ${status})`;
+    if (data.missing_fields) msg += "\nMissing: " + data.missing_fields.join(", ");
+    if (data.unknown_tracks) msg += "\nUnknown: " + data.unknown_tracks.join(", ");
+    if (data.detail) msg += "\n" + data.detail;
+    return msg;
+  }
+
+  // The track picker is built from GET /tracks, so it always matches the
+  // catalogue the model was trained on. If that call fails, fall back to a
+  // plain text box so the page still works.
+  async function loadCatalog() {
+    const catalog = document.getElementById("catalog");
+    try {
+      const response = await fetch(`${BASE}/tracks`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const { tracks } = await response.json();
+      const groups = {};
+      for (const t of tracks) {
+        trackNames[t.track_id] = t.item_name;
+        (groups[t.category] = groups[t.category] || []).push(t);
+      }
+      catalog.innerHTML = Object.entries(groups).map(([category, items]) =>
+        `<div class="group"><div class="group-name">${escapeHtml(category)}</div><div class="chips">` +
+        items.map((t) =>
+          `<label class="chip"><input type="checkbox" name="track" value="${escapeHtml(t.track_id)}">` +
+          `<span>${escapeHtml(t.item_name)} <span style="opacity:.6">${escapeHtml(t.track_id)}</span></span></label>`
+        ).join("") + "</div></div>"
+      ).join("");
+      // Pre-select a session that a mined rule starts from, like the sample
+      // values in the other forms, so the first click shows a recommendation.
+      document.querySelectorAll('input[name="track"]').forEach((el) => {
+        el.checked = ["M09", "M10"].includes(el.value);
+      });
+    } catch (err) {
+      catalog.innerHTML =
+        `<input type="text" id="manualTracks" placeholder="Track IDs, comma-separated, e.g. M09, M10" value="M09, M10">` +
+        `<div class="hint" style="margin-top:6px">Could not load the catalogue (${escapeHtml(err.message)}). ` +
+        `Is api.py running at ${escapeHtml(API_ORIGIN)}?</div>`;
+    }
+  }
+
+  async function loadRules() {
+    const box = document.getElementById("rules");
+    try {
+      const response = await fetch(`${BASE}/rules?limit=8`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const { rules } = await response.json();
+      const name = (ids) => ids.map((id) => escapeHtml(trackNames[id] || id)).join(" + ");
+      box.innerHTML = "<table><thead><tr><th>If a listener plays</th><th>they also play</th>" +
+        '<th class="num">Confidence</th><th class="num">Lift</th></tr></thead><tbody>' +
+        rules.map((r) => `<tr><td>${name(r.antecedents)}</td><td>${name(r.consequents)}</td>` +
+          `<td class="num">${(r.confidence * 100).toFixed(1)}%</td><td class="num">${r.lift.toFixed(2)}</td></tr>`).join("") +
+        "</tbody></table>";
+    } catch (err) {
+      box.innerHTML = `<span class="hint">Could not load the rules (${escapeHtml(err.message)}).</span>`;
+    }
+  }
+
+  function selectedTracks() {
+    const manual = document.getElementById("manualTracks");
+    if (manual) return manual.value.split(",").map((s) => s.trim()).filter(Boolean);
+    return [...document.querySelectorAll('input[name="track"]:checked')].map((el) => el.value);
+  }
+
+  document.querySelectorAll(".examples button").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const wanted = btn.dataset.tracks.split(",");
+      const manual = document.getElementById("manualTracks");
+      if (manual) { manual.value = wanted.join(", "); return; }
+      document.querySelectorAll('input[name="track"]').forEach((el) => { el.checked = wanted.includes(el.value); });
+    });
+  });
+
+  document.getElementById("predictForm").addEventListener("submit", async function (e) {
+    e.preventDefault();
+    const submitBtn = document.getElementById("submitBtn");
+    const result = document.getElementById("result");
+    const playlist = selectedTracks();
+
+    // Client-side check for the most common mistake; the API checks again.
+    if (playlist.length === 0) {
+      result.className = "show err";
+      result.textContent = "Pick at least one track first.";
+      return;
+    }
+
+    submitBtn.disabled = true;
+    submitBtn.textContent = "Recommending...";
+    result.className = "";
+
+    try {
+      const response = await fetch(`${BASE}/predictions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ playlist, top_n: parseInt(document.getElementById("top_n").value, 10) }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        result.className = "show err";
+        result.textContent = describeError(response.status, data);
+        return;
+      }
+      result.className = "show ok";
+      const recs = data.recommendations || [];
+      result.innerHTML = `Model: ${escapeHtml(data.model)}` +
+        (recs.length === 0
+          ? `<div style="margin-top:8px;color:var(--text)">${escapeHtml(data.note || "No recommendations for this session.")}</div>`
+          : recs.map((r) =>
+              `<div class="rec"><div><div class="title">${escapeHtml(r.item_name)}</div>` +
+              `<div class="meta">${escapeHtml(r.track_id)} &middot; ${escapeHtml(r.category)}</div></div>` +
+              `<div class="score"><strong>${(r.confidence * 100).toFixed(1)}%</strong>confidence &middot; lift ${r.lift}</div></div>`
+            ).join(""));
+    } catch (err) {
+      result.className = "show err";
+      result.textContent = "Request failed: " + err.message + ` (is api.py running at ${API_ORIGIN} ?)`;
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = BUTTON_LABEL;
+    }
+  });
+
+  loadCatalog().then(loadRules);
+</script>
+</body>
+</html>
