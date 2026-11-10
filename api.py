@@ -10,6 +10,7 @@ produced in earlier labs:
     4. Association Rule -- Product recommendation from a cart
        Mining (ARM)
     5. Regression       -- Nairobi monthly rental price prediction
+    6. Classification   -- Employee attrition (Yes/No)
 
 The point of this file is to show you that a fitted scikit-learn /
 imbalanced-learn Pipeline is a SINGLE object that already knows how to impute
@@ -111,6 +112,10 @@ rental_pipeline = joblib.load(
     os.path.join(MODEL_DIR, "lasso_regressor_for_rental_price.joblib")
 )
 
+attrition_pipeline = joblib.load(
+    os.path.join(MODEL_DIR, "svc_classifier_for_attrition.joblib")
+)
+
 print("Our group's models have been loaded. The API is ready.")
 
 
@@ -131,6 +136,9 @@ def fitted_categories(pipeline, transformer_name, encoder_step):
 RENTAL_FIELDS = list(rental_pipeline.feature_names_in_)
 RENTAL_CATEGORIES = fitted_categories(rental_pipeline, "nominal", "onehot")
 RENTAL_NULLABLE = ["service_charge_kes"]
+
+ATTRITION_FIELDS = list(attrition_pipeline.feature_names_in_)
+ATTRITION_CATEGORIES = fitted_categories(attrition_pipeline, "cat", "encoder")
 
 
 # -----------------------------------------------------------------------
@@ -171,6 +179,22 @@ def validate_values(payload, numeric_fields=(), categories=None, nullable=()):
         return jsonify({"error": "Invalid field value(s).", "invalid_fields": invalid}), 400
     return None
 
+
+# JSON (instead of Flask's default HTML pages) for errors raised outside a
+# route -- e.g. a mistyped URL or a GET sent to a POST-only endpoint.
+@app.errorhandler(404)
+def not_found(_error):
+    return jsonify({"error": "Endpoint not found."}), 404
+
+
+@app.errorhandler(405)
+def method_not_allowed(_error):
+    return jsonify({"error": "HTTP method not allowed for this endpoint."}), 405
+
+
+@app.errorhandler(500)
+def internal_error(_error):
+    return jsonify({"error": "The server failed to process this request."}), 500
 
 
 # 1. REGRESSION -- predict monthly revenue (KES) for an SME
@@ -403,6 +427,52 @@ def predict_rental_price():
     return jsonify({
         "predicted_monthly_rent_kes": round(predicted_rent_kes, 2),
         "model": "Lasso Regressor (alpha=0.001, log1p target)",
+    })
+
+
+# 6. CLASSIFICATION -- predict whether an employee will leave (Yes/No)
+
+# Sample request (cURL):
+#   curl -X POST http://127.0.0.1:5000/api/v1/models/employee-attrition-classifier/predictions \
+#        -H "Content-Type: application/json" \
+#        -d '{"department": "Engineering", "job_role_level": "Mid",
+#             "education_level": "Master'"'"'s", "performance_rating": "High",
+#             "years_at_company": 6.0, "years_since_last_promotion": 3.5,
+#             "monthly_salary_kes": 95000, "overtime_hours_per_month": 45.0,
+#             "job_satisfaction_score": 2.0, "work_life_balance_score": 2.1,
+#             "distance_from_home_km": 32.0, "num_companies_worked_previously": 3,
+#             "remote_work_days_per_week": 1, "bonus_amount_kes": 30000}'
+#
+# Note: as with the credit-risk classifier, SMOTE lives inside the
+# imbalanced-learn Pipeline and is skipped automatically at predict time.
+# bonus_amount_kes and work_life_balance_score may be null (they had gaps in
+# the training data, which the pipeline's median imputer fills).
+ATTRITION_NULLABLE = ["bonus_amount_kes", "work_life_balance_score"]
+
+
+@app.route("/api/v1/models/employee-attrition-classifier/predictions", methods=["POST"])
+def predict_attrition():
+    payload, error = get_payload_or_error(ATTRITION_FIELDS)
+    if error:
+        return error
+    numeric_fields = [f for f in ATTRITION_FIELDS if f not in ATTRITION_CATEGORIES]
+    error = validate_values(payload, numeric_fields, ATTRITION_CATEGORIES, nullable=ATTRITION_NULLABLE)
+    if error:
+        return error
+
+    input_row = pd.DataFrame([payload])[ATTRITION_FIELDS]
+
+    predicted_class = attrition_pipeline.predict(input_row)[0]
+    predicted_probabilities = attrition_pipeline.predict_proba(input_row)[0]
+    class_labels = attrition_pipeline.named_steps["model"].classes_
+
+    return jsonify({
+        "predicted_attrition": str(predicted_class),
+        "class_probabilities": {
+            str(label): round(float(prob), 4)
+            for label, prob in zip(class_labels, predicted_probabilities)
+        },
+        "model": "Support Vector Classifier (linear, C=0.1, SMOTE-resampled at training only)",
     })
 
 
