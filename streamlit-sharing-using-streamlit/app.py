@@ -149,3 +149,4 @@ with tab_clf:
             f"(probability of leaving: {probabilities['Yes']:.1%})"
         )
         st.caption("Model: Support Vector Classifier (linear, C=0.1, SMOTE-resampled at training only)")
+
