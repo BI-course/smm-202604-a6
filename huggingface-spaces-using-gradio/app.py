@@ -5,6 +5,7 @@ four models from the SAME trained .joblib artifacts that api.py serves:
     1. Regression       -- Nairobi monthly rental price      (Lasso, log1p target)
     2. Classification   -- Employee attrition (Yes/No)       (SMOTE + linear SVC)
     3. Clustering       -- Retail store segment              (K-Means, k=4)
+    4. Association Rule -- Music track recommendations       (Apriori lookup)
 
 Nothing is retrained here: every tab only calls .predict()/.transform() on, or
 looks up, the artifacts loaded once at start-up.
@@ -15,6 +16,7 @@ Files to upload to the Space (all in the Space's root folder):
     lasso_regressor_for_rental_price.joblib
     svc_classifier_for_attrition.joblib
     kmeans_retail_store_segmentation.joblib
+    music_streaming_arm_rules.joblib
 
 Run locally from the repository root (it then finds the files in ./model):
     python huggingface-spaces-using-gradio/app.py
@@ -65,6 +67,7 @@ def load_artifact(filename):
 rental_pipeline = load_artifact("lasso_regressor_for_rental_price.joblib")
 attrition_pipeline = load_artifact("svc_classifier_for_attrition.joblib")
 store_artifact = load_artifact("kmeans_retail_store_segmentation.joblib")
+music_artifact = load_artifact("music_streaming_arm_rules.joblib")
 
 
 def fitted_categories(pipeline, transformer_name, encoder_step):
@@ -80,6 +83,7 @@ RENTAL_CATS = fitted_categories(rental_pipeline, "nominal", "onehot")
 ATTRITION_FIELDS = list(attrition_pipeline.feature_names_in_)
 ATTRITION_CATS = fitted_categories(attrition_pipeline, "cat", "encoder")
 STORE_FIELDS = store_artifact["feature_names"]
+TRACKS = music_artifact["track_lookup"].sort_index()
 
 STORE_SEGMENTS = {
     0: ("Small Neighbourhood Stores", "Low revenue, small floor space and few staff; customers buy small baskets."),
@@ -129,6 +133,41 @@ def predict_store_segment(*values):
     cluster = int(store_artifact["kmeans"].predict(scaled)[0])
     name, description = STORE_SEGMENTS[cluster]
     return f"## Cluster {cluster}: {name}\n\n{description}"
+
+
+# -----------------------------------------------------------------------
+# 4. Association rules -- music recommendations
+# -----------------------------------------------------------------------
+TRACK_CHOICES = [f"{tid} · {row.item_name} ({row.category})" for tid, row in TRACKS.iterrows()]
+
+
+def recommend_tracks(selected, top_n):
+    if not selected:
+        raise gr.Error("Pick at least one track.")
+    playlist = {choice.split(" · ")[0] for choice in selected}
+    candidates = {}
+    for antecedent, consequent_list in music_artifact["recommendation_lookup"].items():
+        if antecedent.issubset(playlist):
+            for track, confidence, lift in consequent_list:
+                if track not in playlist and (track not in candidates or confidence > candidates[track][0]):
+                    candidates[track] = (confidence, lift)
+    ranked = sorted(candidates.items(), key=lambda item: item[1][0], reverse=True)[:int(top_n or 3)]
+    if not ranked:
+        gr.Info("No mined rule starts from this selection -- try two Gospel tracks or one R&B track.")
+    return pd.DataFrame(
+        [[t, TRACKS.loc[t, "item_name"], TRACKS.loc[t, "category"], f"{c:.1%}", round(l, 2)]
+         for t, (c, l) in ranked],
+        columns=["Track", "Title", "Category", "Confidence", "Lift"],
+    )
+
+
+TOP_RULES = music_artifact["cleaned_rules"].head(8)
+TOP_RULES_TABLE = pd.DataFrame({
+    "If a listener plays": [" + ".join(TRACKS.loc[t, "item_name"] for t in sorted(a)) for a in TOP_RULES["antecedents"]],
+    "they also play": [" + ".join(TRACKS.loc[t, "item_name"] for t in sorted(c)) for c in TOP_RULES["consequents"]],
+    "Confidence": [f"{v:.1%}" for v in TOP_RULES["confidence"]],
+    "Lift": TOP_RULES["lift"].round(2).values,
+})
 
 
 # -----------------------------------------------------------------------
@@ -198,6 +237,20 @@ with gr.Blocks(title="BBT 4206 Group Model Demos") as demo:
             outputs=gr.Markdown(),
             flagging_mode="never",
         )
+
+    with gr.Tab("Music Recommender (Association Rules)"):
+        gr.Interface(
+            fn=recommend_tracks,
+            inputs=[
+                gr.CheckboxGroup(TRACK_CHOICES, value=[TRACK_CHOICES[8], TRACK_CHOICES[9]],
+                                 label="Tracks in the listening session"),
+                number("Number of recommendations", 3, minimum=1, maximum=20, step=1),
+            ],
+            outputs=gr.Dataframe(label="Recommended tracks"),
+            flagging_mode="never",
+        )
+        gr.Markdown("### Strongest mined rules")
+        gr.Dataframe(TOP_RULES_TABLE, interactive=False)
 
 if __name__ == "__main__":
     demo.launch()

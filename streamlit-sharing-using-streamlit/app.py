@@ -5,6 +5,7 @@ models from the SAME trained .joblib artifacts that api.py serves:
     1. Regression       -- Nairobi monthly rental price      (Lasso, log1p target)
     2. Classification   -- Employee attrition (Yes/No)       (SMOTE + linear SVC)
     3. Clustering       -- Retail store segment              (K-Means, k=4)
+    4. Association Rule -- Music track recommendations       (Apriori lookup)
 
 Nothing is retrained here. The artifacts are read from the repository's
 ./model folder (the same folder api.py uses).
@@ -45,11 +46,12 @@ def load_artifacts():
         load("lasso_regressor_for_rental_price.joblib"),
         load("svc_classifier_for_attrition.joblib"),
         load("kmeans_retail_store_segmentation.joblib"),
+        load("music_streaming_arm_rules.joblib"),
     )
 
 
 try:
-    rental_pipeline, attrition_pipeline, store_artifact = load_artifacts()
+    rental_pipeline, attrition_pipeline, store_artifact, music_artifact = load_artifacts()
 except FileNotFoundError as exc:
     st.error(f"Model file missing: {exc}. The ./model folder must be at the repository root.")
     st.stop()
@@ -67,6 +69,7 @@ RENTAL_CATS = fitted_categories(rental_pipeline, "nominal", "onehot")
 ATTRITION_FIELDS = list(attrition_pipeline.feature_names_in_)
 ATTRITION_CATS = fitted_categories(attrition_pipeline, "cat", "encoder")
 STORE_FIELDS = store_artifact["feature_names"]
+TRACKS = music_artifact["track_lookup"].sort_index()
 
 
 def select(label, options, default):
@@ -76,8 +79,8 @@ def select(label, options, default):
 st.title("BBT 4206: Our Group's Models")
 st.caption("One tab per model. Every tab uses the same saved `.joblib` artifacts as our Flask API; nothing is retrained.")
 
-tab_reg, tab_clf, tab_clu = st.tabs([
-    "Rental Price", "Employee Attrition", "Retail Store Segment",
+tab_reg, tab_clf, tab_clu, tab_arm = st.tabs([
+    "Rental Price", "Employee Attrition", "Retail Store Segment", "Music Recommender",
 ])
 
 # -----------------------------------------------------------------------
@@ -192,3 +195,43 @@ with tab_clu:
         st.caption("Cluster centres (original units)")
         st.dataframe(centres, width="stretch")
 
+# -----------------------------------------------------------------------
+# 4. Association rules -- music recommendations
+# -----------------------------------------------------------------------
+with tab_arm:
+    st.subheader("Music recommendations (Apriori association rules)")
+    labels = {tid: f"{tid} · {row.item_name} ({row.category})" for tid, row in TRACKS.iterrows()}
+    with st.form("music_form"):
+        playlist = st.multiselect("Tracks in the listening session", list(labels), default=["M09", "M10"],
+                                  format_func=labels.get)
+        top_n = st.number_input("Number of recommendations", min_value=1, max_value=20, value=3, step=1)
+        submitted = st.form_submit_button("Recommend tracks", type="primary")
+
+    if submitted:
+        if not playlist:
+            st.warning("Pick at least one track.")
+        else:
+            candidates = {}
+            for antecedent, consequent_list in music_artifact["recommendation_lookup"].items():
+                if antecedent.issubset(set(playlist)):
+                    for track, confidence, lift in consequent_list:
+                        if track not in playlist and (track not in candidates or confidence > candidates[track][0]):
+                            candidates[track] = (confidence, lift)
+            ranked = sorted(candidates.items(), key=lambda item: item[1][0], reverse=True)[:int(top_n)]
+            if not ranked:
+                st.info("No mined rule starts from this selection -- try two Gospel tracks or one R&B track.")
+            else:
+                st.dataframe(pd.DataFrame(
+                    [[t, TRACKS.loc[t, "item_name"], TRACKS.loc[t, "category"], f"{c:.1%}", round(l, 2)]
+                     for t, (c, l) in ranked],
+                    columns=["Track", "Title", "Category", "Confidence", "Lift"],
+                ), hide_index=True, width="stretch")
+
+    st.caption("Strongest mined rules")
+    top_rules = music_artifact["cleaned_rules"].head(8)
+    st.dataframe(pd.DataFrame({
+        "If a listener plays": [" + ".join(TRACKS.loc[t, "item_name"] for t in sorted(a)) for a in top_rules["antecedents"]],
+        "they also play": [" + ".join(TRACKS.loc[t, "item_name"] for t in sorted(c)) for c in top_rules["consequents"]],
+        "Confidence": [f"{v:.1%}" for v in top_rules["confidence"]],
+        "Lift": top_rules["lift"].round(2).values,
+    }), hide_index=True, width="stretch")

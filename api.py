@@ -12,6 +12,8 @@ produced in earlier labs:
     5. Regression       -- Nairobi monthly rental price prediction
     6. Classification   -- Employee attrition (Yes/No)
     7. Clustering       -- Retail store segment assignment
+    8. Association Rule -- Music track recommendation from a playlist
+       Mining (ARM)        (+ the top mined rules, served from a CSV)
 
 The point of this file is to show you that a fitted scikit-learn /
 imbalanced-learn Pipeline is a SINGLE object that already knows how to impute
@@ -141,6 +143,17 @@ store_clustering_artifact = load_optional_artifact(
     "store", "kmeans_retail_store_segmentation.joblib"
 )
 
+music_arm_artifact = load_optional_artifact(
+    "music", "music_streaming_arm_rules.joblib"
+)
+
+try:
+    top_association_rules = pd.read_csv(os.path.join(MODEL_DIR, "top_association_rules.csv"))
+except Exception as exc:  # noqa: BLE001
+    top_association_rules = None
+    unavailable_models["top_rules"] = f"top_association_rules.csv could not be loaded: {exc}"
+    print(f"WARNING: {unavailable_models['top_rules']}")
+
 print("The API is ready." + (f" Unavailable: {sorted(unavailable_models)}" if unavailable_models else ""))
 
 
@@ -232,7 +245,7 @@ def validate_values(payload, numeric_fields=(), categories=None, nullable=()):
 # route -- e.g. a mistyped URL or a GET sent to a POST-only endpoint.
 @app.errorhandler(404)
 def not_found(_error):
-    return jsonify({"error": "Endpoint not found."}), 404
+    return jsonify({"error": "Endpoint not found.", "hint": "GET /api/v1/models lists every endpoint."}), 404
 
 
 @app.errorhandler(405)
@@ -565,11 +578,159 @@ def predict_store_segment():
     })
 
 
+# 8. ASSOCIATION RULE MINING -- recommend music tracks for a listening session
+
+# Sample request (cURL):
+#   curl -X POST http://127.0.0.1:5000/api/v1/models/music-recommender/predictions \
+#        -H "Content-Type: application/json" \
+#        -d '{"playlist": ["M09", "M10"]}'
+#
+#   curl -X POST http://127.0.0.1:5000/api/v1/models/music-recommender/predictions \
+#        -H "Content-Type: application/json" \
+#        -d '{"playlist": ["M11"], "top_n": 2}'
+#
+# Same lookup+rank approach as the e-commerce recommender above: the rules
+# were mined once in the notebook and precomputed into a lookup; nothing is
+# mined here.
+@app.route("/api/v1/models/music-recommender/predictions", methods=["POST"])
+def recommend_tracks():
+    if music_arm_artifact is None:
+        return unavailable_error("music")
+    payload, error = get_payload_or_error(["playlist"])
+    if error:
+        return error
+    if not isinstance(payload["playlist"], list) or not payload["playlist"]:
+        return jsonify({"error": "'playlist' must be a non-empty list of track IDs, e.g. [\"M09\", \"M10\"]."}), 400
+
+    track_lookup = music_arm_artifact["track_lookup"]
+    playlist = {str(track).strip().upper() for track in payload["playlist"]}
+    unknown = sorted(playlist - set(track_lookup.index))
+    if unknown:
+        return jsonify({
+            "error": "Unknown track ID(s).",
+            "unknown_tracks": unknown,
+            "hint": "GET /api/v1/models/music-recommender/tracks lists every valid track ID.",
+        }), 400
+    try:
+        top_n = int(payload.get("top_n", 3))
+    except (TypeError, ValueError):
+        return jsonify({"error": "'top_n' must be a whole number."}), 400
+    if not 1 <= top_n <= 20:
+        return jsonify({"error": "'top_n' must be between 1 and 20."}), 400
+
+    candidates = {}
+    for antecedent, consequent_list in music_arm_artifact["recommendation_lookup"].items():
+        if antecedent.issubset(playlist):
+            for track, confidence, lift in consequent_list:
+                if track not in playlist:
+                    if track not in candidates or confidence > candidates[track][0]:
+                        candidates[track] = (confidence, lift)
+
+    ranked = sorted(candidates.items(), key=lambda item: item[1][0], reverse=True)[:top_n]
+    recommendations = [
+        {
+            "track_id": str(track),
+            "item_name": str(track_lookup.loc[track, "item_name"]),
+            "category": str(track_lookup.loc[track, "category"]),
+            "confidence": round(float(confidence), 3),
+            "lift": round(float(lift), 2),
+        }
+        for track, (confidence, lift) in ranked
+    ]
+
+    response = {
+        "playlist": sorted(playlist),
+        "recommendations": recommendations,
+        "model": "Apriori association rules (music streaming), precomputed lookup",
+    }
+    if not recommendations:
+        response["note"] = "No mined rule starts from this playlist. Try e.g. [\"M09\", \"M10\"] or [\"M11\"]."
+    return jsonify(response)
+
+
+# 8b. The music track catalogue (the valid IDs for the recommender above)
+
+# Sample request (cURL):
+#   curl http://127.0.0.1:5000/api/v1/models/music-recommender/tracks
+@app.route("/api/v1/models/music-recommender/tracks", methods=["GET"])
+def list_tracks():
+    if music_arm_artifact is None:
+        return unavailable_error("music")
+    tracks = music_arm_artifact["track_lookup"].sort_index()
+    return jsonify({
+        "count": len(tracks),
+        "tracks": [
+            {"track_id": str(track_id), "item_name": str(row.item_name),
+             "category": str(row.category), "duration_minutes": int(row.duration_minutes)}
+            for track_id, row in tracks.iterrows()
+        ],
+    })
+
+
+# 8c. The top mined association rules (read-only, from top_association_rules.csv)
+
+# Sample request (cURL):
+#   curl "http://127.0.0.1:5000/api/v1/models/music-recommender/rules?limit=5"
+@app.route("/api/v1/models/music-recommender/rules", methods=["GET"])
+def list_top_rules():
+    if top_association_rules is None:
+        return unavailable_error("top_rules")
+    limit = request.args.get("limit", default=len(top_association_rules), type=int)
+    columns = ["antecedents", "consequents", "support", "confidence", "lift"]
+    rows = top_association_rules[columns].head(max(limit, 0))
+    return jsonify({
+        "count": len(rows),
+        "rules": [
+            {
+                "antecedents": [s.strip() for s in str(r.antecedents).split(",")],
+                "consequents": [s.strip() for s in str(r.consequents).split(",")],
+                "support": round(float(r.support), 4),
+                "confidence": round(float(r.confidence), 4),
+                "lift": round(float(r.lift), 2),
+            }
+            for r in rows.itertuples(index=False)
+        ],
+    })
+
+
 # -----------------------------------------------------------------------
-# Health check
+# API discovery and health -- "the API is the product"
 # -----------------------------------------------------------------------
-# GET /api/v1/health reports whether each model loaded (useful as Render's
-# health check path).
+# GET /api/v1/models documents every endpoint, the fields it needs and the
+# exact category values our models accept, so a developer can integrate
+# without reading this file. GET /api/v1/health reports whether each model
+# loaded (useful as Render's health check path).
+@app.route("/api/v1/models", methods=["GET"])
+def list_models():
+    return jsonify({
+        "group_models": [
+            {"task": "regression",
+             "endpoint": "POST /api/v1/models/rental-price-regressor/predictions",
+             "required_fields": RENTAL_FIELDS, "nullable_fields": RENTAL_NULLABLE,
+             "allowed_values": RENTAL_CATEGORIES},
+            {"task": "classification",
+             "endpoint": "POST /api/v1/models/employee-attrition-classifier/predictions",
+             "required_fields": ATTRITION_FIELDS, "nullable_fields": ATTRITION_NULLABLE,
+             "allowed_values": ATTRITION_CATEGORIES},
+            {"task": "clustering",
+             "endpoint": "POST /api/v1/models/retail-store-segmenter/predictions",
+             "required_fields": STORE_FIELDS,
+             "segments": {str(k): v["name"] for k, v in STORE_SEGMENTS.items()}},
+            {"task": "association rules",
+             "endpoint": "POST /api/v1/models/music-recommender/predictions",
+             "required_fields": ["playlist"], "optional_fields": {"top_n": "1-20, default 3"},
+             "related": ["GET /api/v1/models/music-recommender/tracks",
+                         "GET /api/v1/models/music-recommender/rules?limit=N"]},
+        ],
+        "lab_demo_models": [
+            "POST /api/v1/models/sme-revenue-regressor/predictions",
+            "POST /api/v1/models/sme-credit-risk-classifier/predictions",
+            "POST /api/v1/models/mall-customer-segmenter/predictions",
+            "POST /api/v1/models/ecommerce-recommender/predictions",
+        ],
+    })
+
+
 @app.route("/api/v1/health", methods=["GET"])
 def health():
     healthy = not unavailable_models
