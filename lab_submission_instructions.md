@@ -75,7 +75,7 @@ Fill in only the rows that apply to your chosen difficulty level (see Part C bel
 | **Deployment target**                             | **URL** |
 |:--------------------------------------------------|:--------|
 | Render (the full `api.py`, all endpoints)         | https://smm-202604-a6.onrender.com/ |
-| Hugging Face Space (Gradio, one tab per model)    |         |
+| Hugging Face Space (Gradio, one tab per model)    |       https://huggingface.co/spaces/D3zzm4nd/smm-202604-a6/tree/main  |
 | Streamlit Community Cloud app (one tab per model) | https://smm-202604-a6.streamlit.app/ |
 
 ---
